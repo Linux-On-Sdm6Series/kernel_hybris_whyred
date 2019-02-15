@@ -307,8 +307,24 @@ static irqreturn_t cdns_uart_isr(int irq, void *dev_id)
 
 	writel(isrstatus, port->membase + CDNS_UART_ISR_OFFSET);
 
-	/* be sure to release the lock and tty before leaving */
-	spin_unlock_irqrestore(&port->lock, flags);
+	/* Read the interrupt status register to determine which
+	 * interrupt(s) is/are active and clear them.
+	 */
+	isrstatus = readl(port->membase + CDNS_UART_ISR);
+	writel(isrstatus, port->membase + CDNS_UART_ISR);
+
+	if (isrstatus & CDNS_UART_IXR_TXEMPTY) {
+		cdns_uart_handle_tx(dev_id);
+		isrstatus &= ~CDNS_UART_IXR_TXEMPTY;
+	}
+
+	/*
+	 * Skip RX processing if RX is disabled as RXEMPTY will never be set
+	 * as read bytes will not be removed from the FIFO.
+	 */
+	if (isrstatus & CDNS_UART_IXR_RXMASK &&
+	    !(readl(port->membase + CDNS_UART_CR) & CDNS_UART_CR_RX_DIS))
+		cdns_uart_handle_rx(dev_id, isrstatus);
 
 	return IRQ_HANDLED;
 }
